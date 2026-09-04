@@ -24,10 +24,10 @@ from collections import Counter
 
 from PIL import Image
 
-LIME = "A8FF78"
-CYAN = "00F2FE"
-INDIGO = "4A00E0"
-STOPS = [("#4A00E0 indigo", INDIGO), ("#00F2FE cyan", CYAN), ("#A8FF78 lime", LIME)]
+import os
+_pal = os.environ.get("PALETTE", "A8FF78,00F2FE,4A00E0").split(",")  # top,mid,bottom
+LIME, CYAN, INDIGO = _pal
+STOPS = [("#%s bottom" % INDIGO, INDIGO), ("#%s mid" % CYAN, CYAN), ("#%s top" % LIME, LIME)]
 
 
 def to_lin(rgb):

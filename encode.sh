@@ -1,5 +1,5 @@
 #!/bin/bash
-# Grain + encode the EEZ 3D swing loop.
+# Grain + encode the 3D swing loop.  (NAME env var sets output basename)
 #
 #   ./encode.sh
 #
@@ -13,6 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT=out
+NAME="${NAME:-eez_linework}"
 FPS=30
 
 echo "=== grain: opaque pass ==="
@@ -25,17 +26,17 @@ echo "=== encode H.264 MP4 ==="
 # brand fields free of banding, which low bitrates destroy on gradients.
 ffmpeg -y -loglevel error -framerate $FPS -i "$OUT/frames_rgb/f_%04d.png" \
   -c:v libx264 -preset slow -crf 16 -pix_fmt yuv420p \
-  -movflags +faststart "$OUT/eez_logo_swing.mp4"
+  -movflags +faststart "$OUT/${NAME}_swing.mp4"
 
 echo "=== encode VP9 WebM (alpha) ==="
 # -auto-alt-ref 0 is required: VP9 alt-ref frames silently discard the alpha
 # plane, which yields a black background instead of a transparent one.
 ffmpeg -y -loglevel error -framerate $FPS -i "$OUT/frames_rgba/f_%04d.png" \
   -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 0 -crf 24 \
-  -auto-alt-ref 0 -row-mt 1 "$OUT/eez_logo_swing.webm"
+  -auto-alt-ref 0 -row-mt 1 "$OUT/${NAME}_swing.webm"
 
 echo "=== verify ==="
-for f in "$OUT/eez_logo_swing.mp4" "$OUT/eez_logo_swing.webm"; do
+for f in "$OUT/${NAME}_swing.mp4" "$OUT/${NAME}_swing.webm"; do
   printf '%s\n' "$f"
   ffprobe -v error -select_streams v:0 \
     -show_entries stream=codec_name,pix_fmt,width,height,nb_read_frames,r_frame_rate \

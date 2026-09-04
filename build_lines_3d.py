@@ -1,5 +1,5 @@
 """
-EEZ logo — 3D swing loop, iteration 4: the LINEWORK is the object.
+SVG linework → 3D loop: the mark's stroke ribbon IS the object. (Built for the EEZ logo; any single-path stroke-outline SVG works via --svg/--palette.)
 
   blender -b -noaudio --python build_lines_3d.py -- [options]
 
@@ -57,20 +57,20 @@ SCENE_MODE = arg("--scene", "studio")  # studio | void
 # Variant tag on every still/matte/crop. Without it a 360 test run
 # silently overwrote the swing variant's 0-degree still.
 VTAG = arg("--tag", "360" if MOTION == "spin" else "swing")
+NAME = arg("--name", "eez")   # basename for saved .blend / logs
 ANIM_SAMPLES = int(arg("--samples", "96"))
 
 HERE = os.path.dirname(os.path.abspath(__file__)) or "."
-SVG = os.path.join(HERE, "eez-mark-gradient-transparent.svg")
+SVG = arg("--svg", os.path.join(HERE, "examples/eez/eez-mark-gradient-transparent.svg"))
 OUT = os.path.join(HERE, "out")
 os.makedirs(OUT, exist_ok=True)
 
-LIME = "A8FF78"
-CYAN = "00F2FE"
-INDIGO = "4A00E0"
+# --palette top,mid,bottom hex stops (no #). Default: EEZ brand ramp.
+LIME, CYAN, INDIGO = arg("--palette", "A8FF78,00F2FE,4A00E0").split(",")
 
 FPS = 30
 LOOP_FRAMES = 240
-SWING_DEG = 45.0
+SWING_DEG = float(arg("--swing", "45"))
 MARK_HEIGHT = 2.2
 TONE_MIN = 0.34
 FILL_RES_U = int(arg("--fillres", "6"))   # bezier tessellation; fidelity-gated
@@ -124,8 +124,8 @@ bpy.context.view_layer.objects.active = curves[0]
 if len(curves) > 1:
     bpy.ops.object.join()
 cu = bpy.context.view_layer.objects.active
-cu.name = "EEZ_Lines_Curve"
-print("[eez] SVG splines: %d (outer boundary + counters)" % len(cu.data.splines))
+cu.name = "Lines_Curve"
+print("[lines] SVG splines: %d (outer boundary + counters)" % len(cu.data.splines))
 
 # Fill the path with its counters. fill_mode FRONT caps the curve using the
 # path's own fill rule, so the enclosed regions of the linework stay open --
@@ -137,7 +137,7 @@ cu.data.bevel_depth = 0.0
 activate(cu)
 bpy.ops.object.convert(target="MESH")
 lines = bpy.context.view_layer.objects.active
-lines.name = "EEZ_Lines"
+lines.name = "Lines"
 bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.mesh.select_all(action="SELECT")
 bpy.ops.mesh.remove_doubles(threshold=1e-6)
@@ -191,14 +191,14 @@ BEVEL_W = BEVEL_FRAC * stroke_w
 vs = [v.co for v in lines.data.vertices]
 RX0, RX1 = min(v.x for v in vs), max(v.x for v in vs)
 RZ0, RZ1 = min(v.z for v in vs), max(v.z for v in vs)
-print("[eez] ribbon: %d verts, %d faces; area=%.5f perimeter=%.4f"
+print("[lines] ribbon: %d verts, %d faces; area=%.5f perimeter=%.4f"
       % (len(lines.data.vertices), len(lines.data.polygons), area, perim))
-print("[eez] stroke width = %.5f world units (%.3f%% of mark height, ~%.1f px at %d)"
+print("[lines] stroke width = %.5f world units (%.3f%% of mark height, ~%.1f px at %d)"
       % (stroke_w, stroke_w / MARK_HEIGHT * 100,
          stroke_w / MARK_HEIGHT * (RES * (MARK_HEIGHT / MARK_HEIGHT)) * 0.795, RES))
-print("[eez] beam depth = %.5f (%.2fx stroke width); cap bevel = %.5f (%.2fx)"
+print("[lines] beam depth = %.5f (%.2fx stroke width); cap bevel = %.5f (%.2fx)"
       % (LINE_DEPTH, LINE_DEPTH / stroke_w, BEVEL_W, BEVEL_FRAC))
-print("[eez] silhouette x[%.4f,%.4f] z[%.4f,%.4f]  w/h=%.4f"
+print("[lines] silhouette x[%.4f,%.4f] z[%.4f,%.4f]  w/h=%.4f"
       % (RX0, RX1, RZ0, RZ1, (RX1 - RX0) / (RZ1 - RZ0)))
 
 # ---------------------------------------------------------------- 2. beams
@@ -208,7 +208,7 @@ sol.offset = 0.0
 sol.use_rim = True
 apply_all(lines)
 solid = lines
-solid.name = "EEZ_Linework"
+solid.name = "Linework"
 
 # Bevel ONLY the front/back cap edges. Selecting by angle would also cut the
 # in-plane stroke corners, moving the silhouette and costing fidelity; a
@@ -230,7 +230,7 @@ if wlayer is not None:
             marked += 1
 bm.to_mesh(me)
 bm.free()
-print("[eez] cap edges marked for bevel: %d" % marked)
+print("[lines] cap edges marked for bevel: %d" % marked)
 
 pre_faces = len(solid.data.polygons)
 bevel_limit = "WEIGHT" if marked else "ANGLE"
@@ -243,7 +243,7 @@ if not marked:
 bv.use_clamp_overlap = True
 apply_all(solid)
 added = len(solid.data.polygons) - pre_faces
-print("[eez] bevel: faces %d -> %d (+%d = %d marked edges x %d segments, %s limit)"
+print("[lines] bevel: faces %d -> %d (+%d = %d marked edges x %d segments, %s limit)"
       % (pre_faces, len(solid.data.polygons), added, marked, 2, bevel_limit))
 activate(solid)
 bpy.ops.object.shade_flat()
@@ -361,7 +361,7 @@ pivot = link(bpy.data.objects.new("Pivot", None))
 solid.parent = pivot
 
 # ---------------------------------------------------------------- 4. material
-mat = bpy.data.materials.new("EEZ_Linework")
+mat = bpy.data.materials.new("Linework")
 mat.use_nodes = True
 nt = mat.node_tree
 nt.nodes.clear()
@@ -502,7 +502,7 @@ solid.data.materials.clear()
 solid.data.materials.append(mat)
 
 # ---------------------------------------------------------------- 5. environment
-world = bpy.data.worlds.new("EEZ_World")
+world = bpy.data.worlds.new("World")
 scene.world = world
 world.use_nodes = True
 wbg = world.node_tree.nodes["Background"]
@@ -645,7 +645,7 @@ def render_fidelity_matte():
     solid.data.materials.clear()
     for m in saved:
         solid.data.materials.append(m)
-    print("[eez] fidelity matte -> out/fidelity_matte_%s.png " % VTAG +
+    print("[lines] fidelity matte -> out/fidelity_matte_%s.png " % VTAG +
           "(ortho, front-on, span %.3f = mark + 6%% margin, pivot at identity)"
           % (MARK_HEIGHT * 1.06))
 
@@ -676,9 +676,9 @@ bob_drv.expression = ("%.6f * cos(2*pi*(frame-1)/%d)"
                       % (MARK_HEIGHT * 0.02, LOOP_FRAMES))
 
 # ---------------------------------------------------------------- 8. output
-blend = os.path.join(OUT, "eez_lines_3d_%s.blend" % VTAG)
+blend = os.path.join(OUT, "%s_lines_3d_%s.blend" % (NAME, VTAG))
 bpy.ops.wm.save_as_mainfile(filepath=blend)
-print("[eez] saved %s" % blend)
+print("[lines] saved %s" % blend)
 
 if MOTION == "spin":
     STILLS = (("000", 1), ("090", 61), ("180", 121), ("270", 181))
@@ -688,11 +688,11 @@ else:
 
 
 def loop_verification():
-    print("[eez] --- loop verification ---")
+    print("[lines] --- loop verification ---")
     for f in (1, 61, 121, 181, LOOP_FRAMES, LOOP_FRAMES + 1):
         scene.frame_set(f)
         bpy.context.view_layer.update()
-        print("[eez] frame %3d  rotZ=%+.9f rad (%+.6f deg)  locZ=%+.9f"
+        print("[lines] frame %3d  rotZ=%+.9f rad (%+.6f deg)  locZ=%+.9f"
               % (f, pivot.rotation_euler.z,
                  math.degrees(pivot.rotation_euler.z),
                  pivot.matrix_world.translation.z))
@@ -709,16 +709,16 @@ if STAGE == "anim":
             floor.hide_render = False
         scene.render.filepath = os.path.join(OUT, "frames_rgb", "f_")
         bpy.ops.render.render(animation=True)
-        print("[eez] pass A (opaque) done")
+        print("[lines] pass A (opaque) done")
     else:
-        print("[eez] void scene: alpha pass only; the MP4 is composited over "
+        print("[lines] void scene: alpha pass only; the MP4 is composited over "
               "#000000 downstream, so no opaque pass is rendered")
     scene.render.film_transparent = True
     if floor:
         floor.hide_render = True
     scene.render.filepath = os.path.join(OUT, sub_dir, "f_")
     bpy.ops.render.render(animation=True)
-    print("[eez] alpha pass done -> out/%s" % sub_dir)
+    print("[lines] alpha pass done -> out/%s" % sub_dir)
     raise SystemExit(0)
 
 def render_zoom(frames, tag_prefix):
@@ -752,7 +752,7 @@ def render_zoom(frames, tag_prefix):
         scene.render.filepath = path
         bpy.ops.render.render(write_still=True)
         made.append(path)
-        print("[eez] zoom f%d rotZ%+.1f -> uv(%.3f,%.3f) %s"
+        print("[lines] zoom f%d rotZ%+.1f -> uv(%.3f,%.3f) %s"
               % (f, math.degrees(pivot.rotation_euler.z), uv.x, uv.y,
                  os.path.basename(path)))
     scene.render.use_border = False
@@ -770,7 +770,7 @@ if STAGE == "strip":
     raise SystemExit(0)
 
 if STAGE != "contact":
-    raise SystemExit("[eez] unknown --stage %s" % STAGE)
+    raise SystemExit("[lines] unknown --stage %s" % STAGE)
 
 loop_verification()
 scene.render.film_transparent = False
@@ -778,7 +778,7 @@ for label, f in STILLS:
     scene.frame_set(f)
     scene.render.filepath = os.path.join(OUT, "contact_%s_%s.png" % (VTAG, label))
     bpy.ops.render.render(write_still=True)
-    print("[eez] still %s (frame %d, rotZ %+.2f deg)"
+    print("[lines] still %s (frame %d, rotZ %+.2f deg)"
           % (label, f, math.degrees(pivot.rotation_euler.z)))
 
 # object mattes for the palette audit
@@ -810,5 +810,5 @@ if floor:
 solid.data.materials.clear()
 for m in saved_mats:
     solid.data.materials.append(m)
-print("[eez] mattes -> %s" % ", ".join("matte_%s_%s.png" % (VTAG, l) for l, _ in STILLS))
-print("[eez] done")
+print("[lines] mattes -> %s" % ", ".join("matte_%s_%s.png" % (VTAG, l) for l, _ in STILLS))
+print("[lines] done")

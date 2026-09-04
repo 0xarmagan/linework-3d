@@ -1,69 +1,74 @@
-# eez-logo-3d-lines
+# linework-3d
 
-Logo-faithful 3D animation of the EEZ mark, built headlessly in Blender. The mesh **is** the logo's linework — the SVG path filled with its counters and extruded into square-profile beams (1.2× measured stroke width), so the negative space is real and the front-on pose is an exact replica of the flat mark (silhouette IoU 99.723% vs the rastered SVG, verified orthographically).
+Turn a flat line-art logo (SVG) into a seamless 3D animation loop — headless Blender, no GUI. The mesh **is** the logo's linework: the SVG path is filled with its counters and extruded into square-profile beams, so negative space is real and the front-on pose is an exact replica of the flat mark, enforced by a measured fidelity gate (orthographic silhouette IoU vs the rastered SVG, target ≥ 99%).
 
-## Deliverables (`out/`)
+Works with any **single-path stroke-outline SVG** (a filled outline of the stroke, counters as sub-paths — the usual export for line-art marks).
+
+## Example — EEZ logo (`examples/eez/`)
 
 | file | motion | scene |
 |---|---|---|
-| `eez_linework_swing.mp4` / `.webm` (transparent) | ±45° pendulum swing — mark legible every frame | royal blue, grid, floor reflection |
-| `eez_linework_360_black.mp4` / `eez_linework_360.webm` (transparent) | full 360° turn — edge-on "blade flash" ~1s twice/turn | pure black, floating |
+| `eez_linework_swing.mp4` / `.webm` (transparent) | ±45° pendulum swing — mark legible every frame | brand blue, grid, floor reflection |
+| `eez_linework_360_black.mp4` / `eez_linework_360.webm` | full 360° turn — edge-on collapse ~1 s twice/turn | pure black, floating |
 
-All loops: 8 s / 240 frames / 30 fps / 2400×2400, seamless (0-pixel seam, driver-exact endpoints). WebMs carry VP9 out-of-band alpha (`alpha_mode=1`) — background swaps are a composite, not a re-render.
+8 s / 240 frames / 30 fps / 2400², bit-identical loop seam, IoU 99.723%.
 
-**Use the swing variant for brand surfaces** (identity never leaves the screen); the 360° is for ambient/backdrop use.
+**Design note baked into the tool:** a flat mark's identity lives in its 2D linework, so a full spin hides it edge-on — that's structural, not tunable. The swing motion (`--motion swing`) keeps identity in every frame; use `--motion spin` only for ambient/backdrop assets where a rhythmic "blade flash" is acceptable.
 
-## Palette
-
-Object gradient `#A8FF78` → `#00F2FE` → `#4A00E0` on a 5-stop object-space ramp (pure emission, no lights, so hexes can't drift); background `#2A1FA8` (swing variant only); darkening-only grain so the palette audits exactly.
-
-## Pipeline
-
-- `build_lines_3d.py` — full scene build + animation drivers + rendering (Blender headless, `bpy`)
-- `fidelity.py` — orthographic silhouette IoU gate vs the source SVG
-- `palette_audit.py` — per-band hex audit of rendered frames
-- `grain.py` — static grain plate
-- `encode.sh` / `encode_360.sh` — ffmpeg: H.264 MP4, VP9 alpha WebM (`-auto-alt-ref 0`), black composite
-- `out/eez_lines_3d_{swing,360}.blend` — saved scenes
-- Source mark: `eez-mark-gradient-transparent.svg`
-
-Intermediate frame directories (`out/frames_*`) are gitignored; regenerate via the build script (~32 min).
-
-## How to use
-
-### Just need the loops?
-Grab them from `out/` — no build required:
-- Brand surfaces (site headers, decks, socials): `eez_linework_swing.mp4`. 
-- Ambient/backdrop on dark UI: `eez_linework_360_black.mp4`.
-- Custom background: composite a transparent WebM over anything, e.g.
-  ```bash
-  ffmpeg -f lavfi -i color=0x101014:s=2400x2400:r=30 -c:v libvpx-vp9 -i out/eez_linework_swing.webm \
-    -filter_complex "[0][1]overlay=shortest=1" -c:v libx264 -crf 18 -pix_fmt yuv420p swing_custom_bg.mp4
-  ```
-  (Decode the WebM with `-c:v libvpx-vp9` — the stock VP9 decoder drops the alpha side-data.)
-
-### Rebuild / modify
+## Usage
 
 Requires Blender 4.x+ on PATH, Python 3 with Pillow + numpy, ffmpeg.
 
 ```bash
-# 1. Checkpoint stills first (fast) — 0°/±45° contacts + fidelity + palette audit
-blender -b -noaudio --python build_lines_3d.py -- --stage contact
+# 1. Checkpoint stills (fast): contacts at rest + extremes, fidelity diff, palette audit
+blender -b -noaudio --python build_lines_3d.py -- --stage contact \
+  --svg path/to/your-mark.svg --palette FFAA00,FF2266,220066 --name mymark
 
-# 2. Full frame render (~32 min): swing variant
-blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion swing --scene studio
+# 2. Full render (~30 min at 2400²)
+blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion swing --scene studio \
+  --svg path/to/your-mark.svg --palette FFAA00,FF2266,220066 --name mymark
 
-#    or the 360° black variant
-blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion spin --scene void --bg 000000
+#    or the 360° floating-on-black variant
+blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion spin --scene void --bg 000000 ...
 
-# 3. Grain + encode (MP4 + alpha WebM)
-./encode.sh        # swing
-./encode_360.sh    # 360
+# 3. Grain + encode → H.264 MP4 + VP9 alpha WebM
+NAME=mymark_linework ./encode.sh        # swing
+NAME=mymark_linework ./encode_360.sh    # 360
 ```
 
-Key options (`-- --flag value`): `--res` (default 2400), `--bg` hex, `--line-depth` (beam depth; default 1.2× measured stroke width), `--motion swing|spin`, `--scene studio|void`, `--tag` (output filename variant tag).
+### Options (after `--`)
+
+| flag | default | meaning |
+|---|---|---|
+| `--svg` | EEZ example mark | source SVG (single path, stroke-outline) |
+| `--palette` | `A8FF78,00F2FE,4A00E0` | gradient hex stops, top → mid → bottom |
+| `--name` | `eez` | basename for saved `.blend` / logs |
+| `--motion` | `swing` | `swing` (±`--swing`°, default 45) or `spin` (360°) |
+| `--scene` | `studio` | `studio` (bg + grid + reflection) or `void` (transparent/black float) |
+| `--bg` | `2A1FA8` | studio background hex |
+| `--line-depth` | 1.2× measured stroke width | beam depth |
+| `--res` | `2400` | output resolution |
+| `--stage` | `contact` | `contact` (stills only) or `anim` (full render; gated so you can't loop-render by accident) |
 
 ### Verify after any change
-- `python3 fidelity.py` — silhouette IoU vs the SVG must stay ≥ 99%
-- `python3 palette_audit.py out/<frame>.png` — hexes must resolve to the three brand stops
+
+- `python3 fidelity.py out/fidelity_matte_<tag>.png <svg-raster>.png` — silhouette IoU must stay ≥ 99%
+- `PALETTE=<top,mid,bottom> python3 palette_audit.py out/<frame>.png` — hexes must resolve to your stops
 - Loop seam: frame 241 must equal frame 1 bit-identically (encode scripts print the diff)
+
+### Compositing the transparent WebM
+
+```bash
+ffmpeg -f lavfi -i color=0x101014:s=2400x2400:r=30 -c:v libvpx-vp9 -i out/mymark_linework_swing.webm \
+  -filter_complex "[0][1]overlay=shortest=1" -c:v libx264 -crf 18 -pix_fmt yuv420p custom_bg.mp4
+```
+
+Decode with `-c:v libvpx-vp9` explicitly — the stock VP9 decoder silently drops the out-of-band alpha.
+
+## How it holds quality
+
+- **Fidelity gate:** ortho silhouette IoU vs the rastered source SVG — "exact replica" is measured, not asserted.
+- **Palette welded to geometry:** pure Emission shader, no lights, 5-stop object-space ramp — brand hexes can't drift.
+- **Stable grain:** one static darkening-only plate applied identically to every frame — no crawl, no hue shift.
+- **Exact loop:** motion is driver-based sinusoids/linear ramps with whole periods over the loop — the seam is exact by construction and verified as a pixel diff.
+- **Structural mesh gate:** zero non-manifold edges / self-intersections / degenerate faces, checked every build.
