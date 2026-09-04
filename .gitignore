@@ -1,0 +1,4 @@
+out/frames_rgb/
+out/frames_rgba/
+out/frames_360_rgba/
+*.bak
