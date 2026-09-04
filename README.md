@@ -28,3 +28,42 @@ Object gradient `#A8FF78` → `#00F2FE` → `#4A00E0` on a 5-stop object-space r
 - Source mark: `eez-mark-gradient-transparent.svg`
 
 Intermediate frame directories (`out/frames_*`) are gitignored; regenerate via the build script (~32 min).
+
+## How to use
+
+### Just need the loops?
+Grab them from `out/` — no build required:
+- Brand surfaces (site headers, decks, socials): `eez_linework_swing.mp4`. 
+- Ambient/backdrop on dark UI: `eez_linework_360_black.mp4`.
+- Custom background: composite a transparent WebM over anything, e.g.
+  ```bash
+  ffmpeg -f lavfi -i color=0x101014:s=2400x2400:r=30 -c:v libvpx-vp9 -i out/eez_linework_swing.webm \
+    -filter_complex "[0][1]overlay=shortest=1" -c:v libx264 -crf 18 -pix_fmt yuv420p swing_custom_bg.mp4
+  ```
+  (Decode the WebM with `-c:v libvpx-vp9` — the stock VP9 decoder drops the alpha side-data.)
+
+### Rebuild / modify
+
+Requires Blender 4.x+ on PATH, Python 3 with Pillow + numpy, ffmpeg.
+
+```bash
+# 1. Checkpoint stills first (fast) — 0°/±45° contacts + fidelity + palette audit
+blender -b -noaudio --python build_lines_3d.py -- --stage contact
+
+# 2. Full frame render (~32 min): swing variant
+blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion swing --scene studio
+
+#    or the 360° black variant
+blender -b -noaudio --python build_lines_3d.py -- --stage anim --motion spin --scene void --bg 000000
+
+# 3. Grain + encode (MP4 + alpha WebM)
+./encode.sh        # swing
+./encode_360.sh    # 360
+```
+
+Key options (`-- --flag value`): `--res` (default 2400), `--bg` hex, `--line-depth` (beam depth; default 1.2× measured stroke width), `--motion swing|spin`, `--scene studio|void`, `--tag` (output filename variant tag).
+
+### Verify after any change
+- `python3 fidelity.py` — silhouette IoU vs the SVG must stay ≥ 99%
+- `python3 palette_audit.py out/<frame>.png` — hexes must resolve to the three brand stops
+- Loop seam: frame 241 must equal frame 1 bit-identically (encode scripts print the diff)
