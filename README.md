@@ -2,9 +2,18 @@
 
 Turn a flat line-art SVG logo into a seamless 3D animation loop — headless Blender. The mesh **is** the linework (path filled with counters, extruded to square beams), and a fidelity gate keeps the front-on pose an exact replica of the mark (silhouette IoU ≥ 99% vs the rastered SVG).
 
-Input: a single-path stroke-outline SVG. Example output in `examples/eez/` (8 s / 240 f / 2400², bit-identical seam, IoU 99.723%): `eez_linework_swing.*` (±45° swing, brand scene) and `eez_linework_360*` (full turn on black).
+Input: a single-path stroke-outline SVG. Two pipelines share the gates (all loops 8 s / 240 f / 2400², bit-identical seam):
 
-**Swing vs spin:** a flat mark disappears edge-on — structural, not tunable. Use `--motion swing` for brand assets (identity in every frame); `--motion spin` only for ambient loops.
+- **Linework** (`build_lines_3d.py`) — the stroke ribbon extruded; the logo, animated. Ortho IoU 99.723%.
+- **Gem** (`build_v3_solid.py`) — the solid faceted volume the mark depicts: outer contour = silhouette, inner lines = facet creases (curved creases supported), mirrored closed solid. Perspective fidelity 99.807%. No bad angle → full 360° spin.
+
+`examples/eez/`: `eez_linework_swing.*` (v1), `eez_linework_swing_v2.*` (+ dimension stack: shade 0.5, dof f/5.6, contact shadow), `eez_linework_360*` (black), `eez_gem_360_black.mp4` / `eez_gem_360.webm` / `eez_gem_360_studio.mp4`.
+
+**Which variant:** linework swing = brand surfaces (the logo itself, legible every frame); gem 360 = emblem/coin-style stings; linework 360 black = ambient only.
+
+**Swing vs spin (linework):** a flat mark disappears edge-on — structural, not tunable. Use `--motion swing` for brand assets; `--motion spin` only for ambient loops. The gem has no such limit.
+
+Dimension flags (v2 stack): `--shade 0.5` (hue-neutral facet modeling), `--dof 5.6`, `--shadow 0.3`.
 
 ## Usage
 

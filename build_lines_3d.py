@@ -1,5 +1,5 @@
 """
-SVG linework → 3D loop: the mark's stroke ribbon IS the object. (Built for the EEZ logo; any single-path stroke-outline SVG works via --svg/--palette.)
+EEZ logo — 3D swing loop, iteration 4: the LINEWORK is the object.
 
   blender -b -noaudio --python build_lines_3d.py -- [options]
 
@@ -57,20 +57,47 @@ SCENE_MODE = arg("--scene", "studio")  # studio | void
 # Variant tag on every still/matte/crop. Without it a 360 test run
 # silently overwrote the swing variant's 0-degree still.
 VTAG = arg("--tag", "360" if MOTION == "spin" else "swing")
-NAME = arg("--name", "eez")   # basename for saved .blend / logs
+
+# Dimension pass. Every one of these defaults to OFF/0 so an unflagged run
+# reproduces the accepted look byte-for-byte.
+SHADE = float(arg("--shade", "0"))            # 0..1 shader-side modelling
+DOF_FSTOP = arg("--dof", None)                # f-stop, e.g. 5.6
+SHADOW = float(arg("--shadow", "0"))          # 0..1 contact-shadow density
+DEPTH_GRADE = float(arg("--depth-grade", "0"))  # 0..1 interior beam shortening
+CAM_DRIFT = float(arg("--cam-drift", "0"))    # +- degrees of camera orbit
+DIM_LABEL = arg("--label", "base")
+# Non-empty routes the animation frames, blend and fidelity matte to tagged
+# names so a v2 run cannot disturb the retained v1 masters or frame dirs.
+RUN_TAG = arg("--run-tag", "")
+
+# --- v3: reconstruct the mark as the 3D wireframe volume it depicts.
+# Vertices are displaced along their own rest-camera ray, which leaves the rest
+# projection exactly unchanged (see V3 note in the docstring) and reveals real
+# depth on rotation.
+# Expressed in WORLD depth units, not as a ray-scale factor: k = 1 + d/|C|,
+# and with the camera 8.9 units out a "friendly-looking" k of 1.35 pushed the
+# mark 3.17 units back -- larger than the mark is tall.
+V3_DEPTH = float(arg("--v3-depth", "0"))   # 0 = off; max backward push, units
+V3_PUSH = V3_DEPTH / 8.9
+V3_MODE = arg("--v3-mode", "uniform")      # uniform | graded  (swoosh reading)
+V3_SIGN = float(arg("--v3-sign", "1"))     # +1 push inner back, -1 pull forward
+CAM_POS = Vector((0.0, -8.9, 0.72))        # rest camera centre, shared
 ANIM_SAMPLES = int(arg("--samples", "96"))
 
 HERE = os.path.dirname(os.path.abspath(__file__)) or "."
-SVG = arg("--svg", os.path.join(HERE, "examples/eez/eez-mark-gradient-transparent.svg"))
+SVG = os.path.join(HERE, "eez-mark-gradient-transparent.svg")
 OUT = os.path.join(HERE, "out")
 os.makedirs(OUT, exist_ok=True)
+# variant- AND res-tagged, so a low-res check can never clobber a master
+DIM_DIR = os.path.join(OUT, "dim_%s_%d" % (VTAG, RES))
 
-# --palette top,mid,bottom hex stops (no #). Default: EEZ brand ramp.
-LIME, CYAN, INDIGO = arg("--palette", "A8FF78,00F2FE,4A00E0").split(",")
+LIME = "A8FF78"
+CYAN = "00F2FE"
+INDIGO = "4A00E0"
 
 FPS = 30
 LOOP_FRAMES = 240
-SWING_DEG = float(arg("--swing", "45"))
+SWING_DEG = 45.0
 MARK_HEIGHT = 2.2
 TONE_MIN = 0.34
 FILL_RES_U = int(arg("--fillres", "6"))   # bezier tessellation; fidelity-gated
@@ -124,8 +151,8 @@ bpy.context.view_layer.objects.active = curves[0]
 if len(curves) > 1:
     bpy.ops.object.join()
 cu = bpy.context.view_layer.objects.active
-cu.name = "Lines_Curve"
-print("[lines] SVG splines: %d (outer boundary + counters)" % len(cu.data.splines))
+cu.name = "EEZ_Lines_Curve"
+print("[eez] SVG splines: %d (outer boundary + counters)" % len(cu.data.splines))
 
 # Fill the path with its counters. fill_mode FRONT caps the curve using the
 # path's own fill rule, so the enclosed regions of the linework stay open --
@@ -137,7 +164,7 @@ cu.data.bevel_depth = 0.0
 activate(cu)
 bpy.ops.object.convert(target="MESH")
 lines = bpy.context.view_layer.objects.active
-lines.name = "Lines"
+lines.name = "EEZ_Lines"
 bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.mesh.select_all(action="SELECT")
 bpy.ops.mesh.remove_doubles(threshold=1e-6)
@@ -191,24 +218,117 @@ BEVEL_W = BEVEL_FRAC * stroke_w
 vs = [v.co for v in lines.data.vertices]
 RX0, RX1 = min(v.x for v in vs), max(v.x for v in vs)
 RZ0, RZ1 = min(v.z for v in vs), max(v.z for v in vs)
-print("[lines] ribbon: %d verts, %d faces; area=%.5f perimeter=%.4f"
+print("[eez] ribbon: %d verts, %d faces; area=%.5f perimeter=%.4f"
       % (len(lines.data.vertices), len(lines.data.polygons), area, perim))
-print("[lines] stroke width = %.5f world units (%.3f%% of mark height, ~%.1f px at %d)"
+print("[eez] stroke width = %.5f world units (%.3f%% of mark height, ~%.1f px at %d)"
       % (stroke_w, stroke_w / MARK_HEIGHT * 100,
          stroke_w / MARK_HEIGHT * (RES * (MARK_HEIGHT / MARK_HEIGHT)) * 0.795, RES))
-print("[lines] beam depth = %.5f (%.2fx stroke width); cap bevel = %.5f (%.2fx)"
+print("[eez] beam depth = %.5f (%.2fx stroke width); cap bevel = %.5f (%.2fx)"
       % (LINE_DEPTH, LINE_DEPTH / stroke_w, BEVEL_W, BEVEL_FRAC))
-print("[lines] silhouette x[%.4f,%.4f] z[%.4f,%.4f]  w/h=%.4f"
+print("[eez] silhouette x[%.4f,%.4f] z[%.4f,%.4f]  w/h=%.4f"
       % (RX0, RX1, RZ0, RZ1, (RX1 - RX0) / (RZ1 - RZ0)))
 
 # ---------------------------------------------------------------- 2. beams
+# --- outer boundary loop, needed only when grading depth
+OUTER_PTS = []
+if DEPTH_GRADE > 0.0 or V3_PUSH > 0.0:
+    bmc = bmesh.new()
+    bmc.from_mesh(lines.data)
+    bmc.verts.ensure_lookup_table()
+    bmc.edges.ensure_lookup_table()
+    bedges = [e for e in bmc.edges if len(e.link_faces) == 1]
+    adj = {}
+    for e in bedges:
+        for v in e.verts:
+            adj.setdefault(v.index, []).append(e)
+    seen_e, cycles = set(), []
+    for e0 in bedges:
+        if e0.index in seen_e:
+            continue
+        cyc, cur, prev = [], e0.verts[0], None
+        while True:
+            nxt = [e for e in adj[cur.index] if e is not prev and e.index not in seen_e]
+            if not nxt:
+                break
+            e = nxt[0]
+            seen_e.add(e.index)
+            cyc.append(cur.co.copy())
+            cur = e.other_vert(cur)
+            prev = e
+        if len(cyc) > 8:
+            cycles.append(cyc)
+    def shoelace(c):
+        a = 0.0
+        for i in range(len(c)):
+            p, q = c[i], c[(i + 1) % len(c)]
+            a += p.x * q.z - q.x * p.z
+        return abs(a) * 0.5
+    cycles.sort(key=shoelace, reverse=True)
+    OUTER_PTS = [(c.x, c.z) for c in cycles[0]]
+    bmc.free()
+    print("[eez] boundary loops found: %d; outer loop has %d pts (area %.5f)"
+          % (len(cycles), len(OUTER_PTS), shoelace(cycles[0])))
+
 sol = lines.modifiers.new("Beam", "SOLIDIFY")
 sol.thickness = LINE_DEPTH
-sol.offset = 0.0
 sol.use_rim = True
+# offset -1 puts ALL new geometry on one side, so the original ribbon surface
+# remains the shared FRONT plane and depth grows backward only.
+sol.offset = -1.0 if DEPTH_GRADE > 0.0 else 0.0
 apply_all(lines)
+
+if DEPTH_GRADE > 0.0:
+    # Grade by moving only the BACK vertices. Variable-thickness Solidify was
+    # tried first, with a hard step and then a feathered vertex group, and both
+    # folded the back surface at stroke junctions (27 then 128 self-intersecting
+    # face pairs). Displacing existing back verts adds no topology and cannot
+    # fold: the back surface stays strictly behind the front plane, so the worst
+    # case is a slanted rim quad.
+    from mathutils.kdtree import KDTree
+    kd = KDTree(len(OUTER_PTS))
+    for i, (ox_, oz_) in enumerate(OUTER_PTS):
+        kd.insert((ox_, 0.0, oz_), i)
+    kd.balance()
+    lo = max(1.0 - DEPTH_GRADE, 0.05)
+    band0 = stroke_w * 1.05
+    band1 = stroke_w * float(arg("--grade-band", "2.2"))
+    bmc = bmesh.new()
+    bmc.from_mesh(lines.data)
+    moved = 0
+    for v in bmc.verts:
+        if v.co.y < LINE_DEPTH * 0.5:
+            continue                      # front-plane vertex: never touched
+        _, _, d = kd.find((v.co.x, 0.0, v.co.z))
+        d = 1e9 if d is None else d
+        if d < band0:
+            w = 1.0
+        elif d > band1:
+            w = lo
+        else:
+            w = 1.0 + (lo - 1.0) * (d - band0) / (band1 - band0)
+        v.co.y = w * LINE_DEPTH
+        moved += 1
+    bmc.to_mesh(lines.data)
+    bmc.free()
+    ys = [v.co.y for v in lines.data.vertices]
+    back = [y for y in ys if y > LINE_DEPTH * 0.5]
+    import collections as _c
+    hist = _c.Counter(round(y / LINE_DEPTH, 1) for y in back)
+    print("[eez] depth grade %.2f: moved %d back verts; body y-extent [%.5f, %.5f]"
+          % (DEPTH_GRADE, moved, min(ys), max(ys)))
+    print("[eez] back-vert depth histogram (fraction of full depth -> count): %s"
+          % dict(sorted(hist.items())))
+    shift = -HALF_DEPTH - min(ys)
+    bmc = bmesh.new(); bmc.from_mesh(lines.data)
+    for v in bmc.verts:
+        v.co.y += shift
+    bmc.to_mesh(lines.data); bmc.free()
+    ys = [v.co.y for v in lines.data.vertices]
+    print("[eez] re-seated: front plane y=%.5f (ungraded front plane y=%.5f), "
+          "deepest back y=%.5f" % (min(ys), -HALF_DEPTH, max(ys)))
+
 solid = lines
-solid.name = "Linework"
+solid.name = "EEZ_Linework"
 
 # Bevel ONLY the front/back cap edges. Selecting by angle would also cut the
 # in-plane stroke corners, moving the silhouette and costing fidelity; a
@@ -230,7 +350,7 @@ if wlayer is not None:
             marked += 1
 bm.to_mesh(me)
 bm.free()
-print("[lines] cap edges marked for bevel: %d" % marked)
+print("[eez] cap edges marked for bevel: %d" % marked)
 
 pre_faces = len(solid.data.polygons)
 bevel_limit = "WEIGHT" if marked else "ANGLE"
@@ -243,10 +363,60 @@ if not marked:
 bv.use_clamp_overlap = True
 apply_all(solid)
 added = len(solid.data.polygons) - pre_faces
-print("[lines] bevel: faces %d -> %d (+%d = %d marked edges x %d segments, %s limit)"
+print("[eez] bevel: faces %d -> %d (+%d = %d marked edges x %d segments, %s limit)"
       % (pre_faces, len(solid.data.polygons), added, marked, 2, bevel_limit))
 activate(solid)
 bpy.ops.object.shade_flat()
+
+# ---------------------------------------------------------------- 2b. v3 depth
+V3_ATTR = "orig_z"
+if V3_PUSH > 0.0:
+    from mathutils.kdtree import KDTree
+    # reuse the outer-boundary distance field: verts near the silhouette are
+    # the mark's outline and stay put; interior verts are the depicted far
+    # edges and get pushed back along their camera rays.
+    bmc = bmesh.new()
+    bmc.from_mesh(solid.data)
+    bmc.verts.ensure_lookup_table()
+    if not OUTER_PTS:
+        raise SystemExit("[eez] v3 needs the outer boundary; build it first")
+    kd = KDTree(len(OUTER_PTS))
+    for i, (ox_, oz_) in enumerate(OUTER_PTS):
+        kd.insert((ox_, 0.0, oz_), i)
+    kd.balance()
+    near = stroke_w * 1.05
+    far = stroke_w * 6.0
+    ds = []
+    for v in bmc.verts:
+        _, _, dd_ = kd.find((v.co.x, 0.0, v.co.z))
+        ds.append(1e9 if dd_ is None else dd_)
+    dmax = max(d for d in ds if d < 1e8) or 1.0
+    # keep the ORIGINAL z so the object-space hue ramp is unaffected by depth
+    zl = bmc.verts.layers.float.new(V3_ATTR)
+    n_push = 0
+    for v, d in zip(bmc.verts, ds):
+        v[zl] = v.co.z
+        if d <= near:
+            w = 0.0
+        elif V3_MODE == "graded":
+            w = min((d - near) / max(far - near, 1e-6), 1.0)
+        else:
+            w = 1.0
+        if w > 0.0:
+            n_push += 1
+            k = 1.0 + V3_SIGN * V3_PUSH * w
+            v.co = CAM_POS + (v.co - CAM_POS) * k
+    bmc.to_mesh(solid.data)
+    bmc.free()
+    ys = [v.co.y for v in solid.data.vertices]
+    print("[eez] v3 %s depth=%.2f units (ray scale k=%.4f) sign=%+.0f: %d/%d verts "
+          "displaced; body y-extent now [%.4f, %.4f] (was +-%.4f), so total depth "
+          "%.3f vs mark width %.3f"
+          % (V3_MODE, V3_DEPTH, 1.0 + V3_PUSH, V3_SIGN, n_push,
+             len(solid.data.vertices), min(ys), max(ys), HALF_DEPTH,
+             max(ys) - min(ys), RX1 - RX0))
+    print("[eez] v3 max interior distance %.4f; near band %.4f, far band %.4f"
+          % (dmax, near, far))
 
 # ---------------------------------------------------------------- 3. robustness gate
 def robustness_report(ob):
@@ -350,8 +520,9 @@ def robustness_report(ob):
                   and not degenerate and real == 0)
     print("[gate] STRUCTURAL: %s" % ("PASS — closed, manifold, no self-intersections"
                                      if structural else "FAIL — see counts above"))
-    print("[gate] SLIVER HYGIENE: %d acute cap faces, 0 on walls/bevels "
-          "(informational; verified invisible by zoom + strip)" % sharp1)
+    print("[gate] SLIVER HYGIENE: %d acute faces (%d caps / %d walls-bevels) "
+          "(informational; caps verified invisible by zoom + strip)"
+          % (sharp1, cap_s, wall_s))
     return structural
 
 
@@ -361,7 +532,7 @@ pivot = link(bpy.data.objects.new("Pivot", None))
 solid.parent = pivot
 
 # ---------------------------------------------------------------- 4. material
-mat = bpy.data.materials.new("Linework")
+mat = bpy.data.materials.new("EEZ_Linework")
 mat.use_nodes = True
 nt = mat.node_tree
 nt.nodes.clear()
@@ -370,13 +541,20 @@ texco = nt.nodes.new("ShaderNodeTexCoord")
 
 # hue: object-space Z, five stops from the three brand hexes so each colour
 # gets a band you can name (indigo flat to 24%, lime flat from 82%)
-sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 zmap = nt.nodes.new("ShaderNodeMapRange")
 zmap.inputs["From Min"].default_value = RZ0
 zmap.inputs["From Max"].default_value = RZ1
 zmap.clamp = True
-nt.links.new(texco.outputs["Object"], sep.inputs["Vector"])
-nt.links.new(sep.outputs["Z"], zmap.inputs["Value"])
+if V3_PUSH > 0.0:
+    # Ray displacement changes z, which would drag the gradient with it. Read
+    # the pre-displacement z stored per vertex so the palette stays put.
+    zattr = nt.nodes.new("ShaderNodeAttribute")
+    zattr.attribute_name = V3_ATTR
+    nt.links.new(zattr.outputs["Fac"], zmap.inputs["Value"])
+else:
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(texco.outputs["Object"], sep.inputs["Vector"])
+    nt.links.new(sep.outputs["Z"], zmap.inputs["Value"])
 
 ramp = nt.nodes.new("ShaderNodeValToRGB")
 ramp.color_ramp.interpolation = "LINEAR"
@@ -486,13 +664,61 @@ tone_stip.use_clamp = True
 nt.links.new(tonemix.outputs[0], tone_stip.inputs[0])
 nt.links.new(stipmap.outputs["Result"], tone_stip.inputs[1])
 
+tone_final = tone_stip
+if SHADE > 0.0:
+    # Shading depth as a single SCALAR multiplied equally on R/G/B, so hue is
+    # preserved by construction -- the same discipline as the grain. No light
+    # objects: this is entirely shader-side.
+    #
+    #  wall falloff : darken as |N.y| -> 0, so side walls model darker than caps
+    #  fresnel rim  : lift silhouette-grazing faces, and the final MULTIPLY is
+    #                 clamped, so a lift can reach tone 1.0 (= the exact brand
+    #                 hex, the palette peak) and no further.
+    wall = nt.nodes.new("ShaderNodeMapRange")
+    wall.inputs["From Min"].default_value = 0.0
+    wall.inputs["From Max"].default_value = 1.0
+    wall.inputs["To Min"].default_value = 0.45
+    wall.inputs["To Max"].default_value = 1.0
+    wall.clamp = True
+    nt.links.new(nyabs.outputs["Value"], wall.inputs["Value"])
+
+    fres = nt.nodes.new("ShaderNodeFresnel")
+    fres.inputs["IOR"].default_value = 1.45
+    rim = nt.nodes.new("ShaderNodeMapRange")
+    rim.inputs["From Min"].default_value = 0.0
+    rim.inputs["From Max"].default_value = 1.0
+    rim.inputs["To Min"].default_value = 1.0
+    rim.inputs["To Max"].default_value = 1.55
+    rim.clamp = True
+    nt.links.new(fres.outputs["Fac"], rim.inputs["Value"])
+
+    shade_raw = nt.nodes.new("ShaderNodeMath")
+    shade_raw.operation = "MULTIPLY"
+    nt.links.new(wall.outputs["Result"], shade_raw.inputs[0])
+    nt.links.new(rim.outputs["Result"], shade_raw.inputs[1])
+
+    shade_mix = nt.nodes.new("ShaderNodeMix")
+    shade_mix.data_type = "FLOAT"
+    shade_mix.inputs[0].default_value = SHADE     # 0 = current look, 1 = full
+    shade_mix.inputs[2].default_value = 1.0
+    nt.links.new(shade_raw.outputs["Value"], shade_mix.inputs[3])
+
+    shaded = nt.nodes.new("ShaderNodeMath")
+    shaded.operation = "MULTIPLY"
+    shaded.use_clamp = True                       # hard ceiling: tone <= 1.0
+    nt.links.new(tone_stip.outputs["Value"], shaded.inputs[0])
+    nt.links.new(shade_mix.outputs[0], shaded.inputs[1])
+    tone_final = shaded
+    print("[eez] shade %.2f: wall falloff to 0.45 x |Ny|, fresnel rim to 1.55x, "
+          "clamped at tone 1.0" % SHADE)
+
 # One scalar gain on all three channels is exactly "shading toward near-black",
 # so it cannot move a pixel off a ramp stop. Pure emission, no lights in the
 # scene, so nothing stacks on top and no channel can clip.
 tint = nt.nodes.new("ShaderNodeVectorMath")
 tint.operation = "SCALE"
 nt.links.new(ramp.outputs["Color"], tint.inputs[0])
-nt.links.new(tone_stip.outputs["Value"], tint.inputs["Scale"])
+nt.links.new(tone_final.outputs["Value"], tint.inputs["Scale"])
 emit = nt.nodes.new("ShaderNodeEmission")
 emit.inputs["Strength"].default_value = 1.0
 nt.links.new(tint.outputs["Vector"], emit.inputs["Color"])
@@ -502,7 +728,7 @@ solid.data.materials.clear()
 solid.data.materials.append(mat)
 
 # ---------------------------------------------------------------- 5. environment
-world = bpy.data.worlds.new("World")
+world = bpy.data.worlds.new("EEZ_World")
 scene.world = world
 world.use_nodes = True
 wbg = world.node_tree.nodes["Background"]
@@ -587,7 +813,35 @@ if SCENE_MODE != "void":
     # dialled down from 0.30: an open linework shape throws a busy reflection that
     # competes with the strokes themselves
     fmix.inputs["Fac"].default_value = 0.16
-    fnt.links.new(gcol.outputs[2], femit.inputs["Color"])
+    ground = gcol
+    if SHADOW > 0.0:
+        # Contact shadow with no light object: a soft neutral pool in the floor
+        # shader, under the object's footprint. Added on top of the existing
+        # 0.16 reflection rather than replacing it.
+        gpos = fnt.nodes.new("ShaderNodeSeparateXYZ")
+        fnt.links.new(ftex.outputs["Object"], gpos.inputs["Vector"])
+        gflat = fnt.nodes.new("ShaderNodeCombineXYZ")
+        fnt.links.new(gpos.outputs["X"], gflat.inputs["X"])
+        fnt.links.new(gpos.outputs["Y"], gflat.inputs["Y"])
+        glen = fnt.nodes.new("ShaderNodeVectorMath")
+        glen.operation = "LENGTH"
+        fnt.links.new(gflat.outputs["Vector"], glen.inputs[0])
+        pool = fnt.nodes.new("ShaderNodeMapRange")
+        pool.inputs["From Min"].default_value = 0.35
+        pool.inputs["From Max"].default_value = 1.75
+        pool.inputs["To Min"].default_value = SHADOW
+        pool.inputs["To Max"].default_value = 0.0
+        pool.clamp = True
+        fnt.links.new(glen.outputs["Value"], pool.inputs["Value"])
+        shmix = fnt.nodes.new("ShaderNodeMix")
+        shmix.data_type = "RGBA"
+        shmix.inputs[7].default_value = (0.0, 0.0, 0.0, 1.0)   # neutral dark
+        fnt.links.new(gcol.outputs[2], shmix.inputs[6])
+        fnt.links.new(pool.outputs["Result"], shmix.inputs[0])
+        ground = shmix
+        print("[eez] contact shadow density %.2f (neutral, radius 1.75, "
+              "shader-side, no light object)" % SHADOW)
+    fnt.links.new(ground.outputs[2], femit.inputs["Color"])
     fnt.links.new(femit.outputs["Emission"], fmix.inputs[1])
     fnt.links.new(fgloss.outputs["BSDF"], fmix.inputs[2])
     fnt.links.new(fmix.outputs["Shader"], fout.inputs["Surface"])
@@ -596,9 +850,38 @@ if SCENE_MODE != "void":
 cam_d = bpy.data.cameras.new("Cam")
 cam_d.lens = 105
 cam = link(bpy.data.objects.new("Cam", cam_d))
-cam.location = (0, -8.9, 0.72)
+cam.location = CAM_POS
 cam.rotation_euler = (math.radians(86.5), 0, 0)
 scene.camera = cam
+bpy.context.view_layer.update()
+
+FRONT_PLANE_Y = -HALF_DEPTH
+FOCUS_DIST = None
+if DOF_FSTOP:
+    # Focus locked on the mark's FRONT PLANE at rest, measured along the camera
+    # view axis rather than guessed from the camera distance.
+    view = cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+    FOCUS_DIST = (Vector((0.0, FRONT_PLANE_Y, 0.0)) - cam.location).dot(view)
+    cam_d.dof.use_dof = True
+    cam_d.dof.aperture_fstop = float(DOF_FSTOP)
+    cam_d.dof.focus_distance = FOCUS_DIST
+    print("[eez] dof f/%s, focus %.5f along view axis onto front plane y=%.5f "
+          "(beam depth %.5f, so the whole body sits inside one focal plane)"
+          % (DOF_FSTOP, FOCUS_DIST, FRONT_PLANE_Y, LINE_DEPTH))
+
+if CAM_DRIFT > 0.0:
+    # Parallax by orbiting the camera on a rig empty. Whole number of periods
+    # over the loop and driven, not keyframed, so the seam stays bit-exact.
+    rig = link(bpy.data.objects.new("CamRig", None))
+    rig.location = (0.0, 0.0, 0.0)
+    cam.parent = rig
+    cam.matrix_parent_inverse = rig.matrix_world.inverted()
+    dd = rig.driver_add("rotation_euler", 2).driver
+    dd.type = "SCRIPTED"
+    dd.expression = ("radians(%.4f) * sin(2*pi*((frame-1) %% %d)/%d)"
+                     % (CAM_DRIFT, LOOP_FRAMES, LOOP_FRAMES))
+    print("[eez] cam drift +-%.2f deg, one whole period over %d frames, driver: %s"
+          % (CAM_DRIFT, LOOP_FRAMES, dd.expression))
 
 scene.render.resolution_x = scene.render.resolution_y = RES
 scene.render.image_settings.file_format = "PNG"
@@ -625,6 +908,12 @@ def render_fidelity_matte():
     ocam_d = bpy.data.cameras.new("OrthoCam")
     ocam_d.type = "ORTHO"
     ocam_d.ortho_scale = MARK_HEIGHT * 1.06
+    if DOF_FSTOP:
+        # Carry DoF onto the fidelity camera too. Without this the gate would
+        # be measuring a pinhole render and could never detect softening.
+        ocam_d.dof.use_dof = True
+        ocam_d.dof.aperture_fstop = float(DOF_FSTOP)
+        ocam_d.dof.focus_distance = 6.0 + FRONT_PLANE_Y
     ocam = link(bpy.data.objects.new("OrthoCam", ocam_d))
     ocam.location = (0, -6, 0)
     ocam.rotation_euler = (math.radians(90), 0, 0)
@@ -634,7 +923,12 @@ def render_fidelity_matte():
     scene.render.film_transparent = True
     if floor:
         floor.hide_render = True
-    scene.render.filepath = os.path.join(OUT, "fidelity_matte_%s.png" % VTAG)
+    fid_name = ("fid_%s.png" % DIM_LABEL) if STAGE in ("dim", "driftstrip") \
+        else ("fidelity_matte_%s%s.png"
+              % (VTAG, ("_" + RUN_TAG) if RUN_TAG else ""))
+    fid_dir = DIM_DIR if STAGE in ("dim", "driftstrip") else OUT
+    os.makedirs(fid_dir, exist_ok=True)
+    scene.render.filepath = os.path.join(fid_dir, fid_name)
     bpy.ops.render.render(write_still=True)
 
     if floor:
@@ -645,7 +939,7 @@ def render_fidelity_matte():
     solid.data.materials.clear()
     for m in saved:
         solid.data.materials.append(m)
-    print("[lines] fidelity matte -> out/fidelity_matte_%s.png " % VTAG +
+    print("[eez] fidelity matte -> %s " % os.path.join(fid_dir, fid_name) +
           "(ortho, front-on, span %.3f = mark + 6%% margin, pivot at identity)"
           % (MARK_HEIGHT * 1.06))
 
@@ -676,9 +970,13 @@ bob_drv.expression = ("%.6f * cos(2*pi*(frame-1)/%d)"
                       % (MARK_HEIGHT * 0.02, LOOP_FRAMES))
 
 # ---------------------------------------------------------------- 8. output
-blend = os.path.join(OUT, "%s_lines_3d_%s.blend" % (NAME, VTAG))
+blend = (os.path.join(DIM_DIR, "eez_lines_3d_%s.blend" % DIM_LABEL)
+         if STAGE in ("dim", "driftstrip")
+         else os.path.join(OUT, "eez_lines_3d_%s%s.blend"
+                           % (VTAG, ("_" + RUN_TAG) if RUN_TAG else "")))
+os.makedirs(os.path.dirname(blend), exist_ok=True)
 bpy.ops.wm.save_as_mainfile(filepath=blend)
-print("[lines] saved %s" % blend)
+print("[eez] saved %s" % blend)
 
 if MOTION == "spin":
     STILLS = (("000", 1), ("090", 61), ("180", 121), ("270", 181))
@@ -688,11 +986,11 @@ else:
 
 
 def loop_verification():
-    print("[lines] --- loop verification ---")
+    print("[eez] --- loop verification ---")
     for f in (1, 61, 121, 181, LOOP_FRAMES, LOOP_FRAMES + 1):
         scene.frame_set(f)
         bpy.context.view_layer.update()
-        print("[lines] frame %3d  rotZ=%+.9f rad (%+.6f deg)  locZ=%+.9f"
+        print("[eez] frame %3d  rotZ=%+.9f rad (%+.6f deg)  locZ=%+.9f"
               % (f, pivot.rotation_euler.z,
                  math.degrees(pivot.rotation_euler.z),
                  pivot.matrix_world.translation.z))
@@ -702,23 +1000,24 @@ def loop_verification():
 if STAGE == "anim":
     loop_verification()
     scene.eevee.taa_render_samples = ANIM_SAMPLES
-    sub_dir = "frames_360_rgba" if SCENE_MODE == "void" else "frames_rgba"
+    sfx = ("_" + RUN_TAG) if RUN_TAG else ""
+    sub_dir = ("frames_360%s_rgba" % sfx) if SCENE_MODE == "void" else ("frames%s_rgba" % sfx)
     if SCENE_MODE != "void":
         scene.render.film_transparent = False
         if floor:
             floor.hide_render = False
-        scene.render.filepath = os.path.join(OUT, "frames_rgb", "f_")
+        scene.render.filepath = os.path.join(OUT, "frames%s_rgb" % sfx, "f_")
         bpy.ops.render.render(animation=True)
-        print("[lines] pass A (opaque) done")
+        print("[eez] pass A (opaque) done")
     else:
-        print("[lines] void scene: alpha pass only; the MP4 is composited over "
+        print("[eez] void scene: alpha pass only; the MP4 is composited over "
               "#000000 downstream, so no opaque pass is rendered")
     scene.render.film_transparent = True
     if floor:
         floor.hide_render = True
     scene.render.filepath = os.path.join(OUT, sub_dir, "f_")
     bpy.ops.render.render(animation=True)
-    print("[lines] alpha pass done -> out/%s" % sub_dir)
+    print("[eez] alpha pass done -> out/%s" % sub_dir)
     raise SystemExit(0)
 
 def render_zoom(frames, tag_prefix):
@@ -752,7 +1051,7 @@ def render_zoom(frames, tag_prefix):
         scene.render.filepath = path
         bpy.ops.render.render(write_still=True)
         made.append(path)
-        print("[lines] zoom f%d rotZ%+.1f -> uv(%.3f,%.3f) %s"
+        print("[eez] zoom f%d rotZ%+.1f -> uv(%.3f,%.3f) %s"
               % (f, math.degrees(pivot.rotation_euler.z), uv.x, uv.y,
                  os.path.basename(path)))
     scene.render.use_border = False
@@ -760,6 +1059,126 @@ def render_zoom(frames, tag_prefix):
     scene.render.resolution_x = scene.render.resolution_y = base
     return made
 
+
+DIM_STILLS = (("000", 1), ("p45", 61))
+
+
+def render_dim_pass():
+    os.makedirs(DIM_DIR, exist_ok=True)
+    scene.render.film_transparent = False
+    if floor:
+        floor.hide_render = False
+    for label, f in DIM_STILLS:
+        scene.frame_set(f)
+        scene.render.filepath = os.path.join(DIM_DIR, "dim_%s_%s.png" % (DIM_LABEL, label))
+        bpy.ops.render.render(write_still=True)
+        print("[eez] dim %s %s (frame %d, rotZ %+.2f)"
+              % (DIM_LABEL, label, f, math.degrees(pivot.rotation_euler.z)))
+    # object mattes for the palette audit
+    mmat = bpy.data.materials.new("DimMatte")
+    mmat.use_nodes = True
+    mt = mmat.node_tree
+    mt.nodes.clear()
+    mo = mt.nodes.new("ShaderNodeOutputMaterial")
+    mev = mt.nodes.new("ShaderNodeEmission")
+    mev.inputs["Color"].default_value = (1, 1, 1, 1)
+    mt.links.new(mev.outputs["Emission"], mo.inputs["Surface"])
+    keep = list(solid.data.materials)
+    solid.data.materials.clear()
+    solid.data.materials.append(mmat)
+    mw = bpy.data.worlds.new("DimMatteWorld")
+    mw.use_nodes = True
+    mw.node_tree.nodes["Background"].inputs["Color"].default_value = (0, 0, 0, 1)
+    kw = scene.world
+    scene.world = mw
+    if floor:
+        floor.hide_render = True
+    for label, f in DIM_STILLS:
+        scene.frame_set(f)
+        scene.render.filepath = os.path.join(DIM_DIR, "mt_%s_%s.png" % (DIM_LABEL, label))
+        bpy.ops.render.render(write_still=True)
+    scene.world = kw
+    if floor:
+        floor.hide_render = False
+    solid.data.materials.clear()
+    for m in keep:
+        solid.data.materials.append(m)
+    print("[eez] dim mattes written")
+
+
+def render_drift_strip(frames):
+    os.makedirs(DIM_DIR, exist_ok=True)
+    scene.render.film_transparent = False
+    if floor:
+        floor.hide_render = False
+    for f in frames:
+        scene.frame_set(f)
+        bpy.context.view_layer.update()
+        scene.render.filepath = os.path.join(
+            DIM_DIR, "dim_%s_f%03d.png" % (DIM_LABEL, f))
+        bpy.ops.render.render(write_still=True)
+        print("[eez] drift strip f%d camX=%+.4f camY=%+.4f"
+              % (f, cam.matrix_world.translation.x, cam.matrix_world.translation.y))
+
+
+if STAGE == "v3stills":
+    os.makedirs(DIM_DIR, exist_ok=True)
+    # poses set directly so we can reach 90 deg, which the +-45 swing never does
+    if pivot.animation_data:
+        for d_ in list(pivot.animation_data.drivers):
+            pivot.animation_data.drivers.remove(d_)
+    pivot.location = (0.0, 0.0, 0.0)
+    scene.render.film_transparent = False
+    if floor:
+        floor.hide_render = False
+    for lab, deg in (("rest", 0.0), ("p45", 45.0), ("p90", 90.0)):
+        pivot.rotation_euler = (0.0, 0.0, math.radians(deg))
+        bpy.context.view_layer.update()
+        scene.render.filepath = os.path.join(DIM_DIR, "v3_%s_%s.png" % (DIM_LABEL, lab))
+        bpy.ops.render.render(write_still=True)
+        print("[eez] v3 still %s %s (%.0f deg)" % (DIM_LABEL, lab, deg))
+    # matte at rest, for the projective match against v2
+    mm3 = bpy.data.materials.new("V3Matte")
+    mm3.use_nodes = True
+    m3 = mm3.node_tree
+    m3.nodes.clear()
+    o3 = m3.nodes.new("ShaderNodeOutputMaterial")
+    e3 = m3.nodes.new("ShaderNodeEmission")
+    e3.inputs["Color"].default_value = (1, 1, 1, 1)
+    m3.links.new(e3.outputs["Emission"], o3.inputs["Surface"])
+    keep3 = list(solid.data.materials)
+    solid.data.materials.clear()
+    solid.data.materials.append(mm3)
+    w3 = bpy.data.worlds.new("V3MatteWorld")
+    w3.use_nodes = True
+    w3.node_tree.nodes["Background"].inputs["Color"].default_value = (0, 0, 0, 1)
+    kw3 = scene.world
+    scene.world = w3
+    if floor:
+        floor.hide_render = True
+    pivot.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    scene.render.filepath = os.path.join(DIM_DIR, "v3mt_%s_rest.png" % DIM_LABEL)
+    bpy.ops.render.render(write_still=True)
+    scene.world = kw3
+    if floor:
+        floor.hide_render = False
+    solid.data.materials.clear()
+    for m in keep3:
+        solid.data.materials.append(m)
+    print("[eez] v3 rest matte written")
+    raise SystemExit(0)
+
+if STAGE == "dim":
+    loop_verification()
+    render_dim_pass()
+    raise SystemExit(0)
+
+if STAGE == "driftstrip":
+    loop_verification()
+    fr = [int(x) for x in arg("--strip-frames", "1,41,81,121,161,201").split(",")]
+    render_drift_strip(fr)
+    raise SystemExit(0)
 
 if STAGE == "zoom":
     render_zoom([int(x) for x in ZOOM_FRAMES.split(",")], "zoom")
@@ -770,7 +1189,7 @@ if STAGE == "strip":
     raise SystemExit(0)
 
 if STAGE != "contact":
-    raise SystemExit("[lines] unknown --stage %s" % STAGE)
+    raise SystemExit("[eez] unknown --stage %s" % STAGE)
 
 loop_verification()
 scene.render.film_transparent = False
@@ -778,7 +1197,7 @@ for label, f in STILLS:
     scene.frame_set(f)
     scene.render.filepath = os.path.join(OUT, "contact_%s_%s.png" % (VTAG, label))
     bpy.ops.render.render(write_still=True)
-    print("[lines] still %s (frame %d, rotZ %+.2f deg)"
+    print("[eez] still %s (frame %d, rotZ %+.2f deg)"
           % (label, f, math.degrees(pivot.rotation_euler.z)))
 
 # object mattes for the palette audit
@@ -810,5 +1229,5 @@ if floor:
 solid.data.materials.clear()
 for m in saved_mats:
     solid.data.materials.append(m)
-print("[lines] mattes -> %s" % ", ".join("matte_%s_%s.png" % (VTAG, l) for l, _ in STILLS))
-print("[lines] done")
+print("[eez] mattes -> %s" % ", ".join("matte_%s_%s.png" % (VTAG, l) for l, _ in STILLS))
+print("[eez] done")
